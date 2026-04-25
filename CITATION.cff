@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "Osborne"
+    given-names: "Dustin"
+    orcid: ""  # Add your ORCID if available
+title: "ShieldLab: Monte Carlo Radiation Shielding Simulation Toolchain"
+version: 0.1.0
+date-released: 2025-04-25
+url: "https://github.com/YOUR_USERNAME/shieldlab"
+repository-code: "https://github.com/YOUR_USERNAME/shieldlab"
+keywords:
+  - "radiation shielding"
+  - "Monte Carlo simulation"
+  - "nuclear medicine"
+  - "GATE"
+  - "medical physics"
+license: MIT
+preferred-citation:
+  type: article
+  authors:
+    - family-names: "Oumano"
+      given-names: "N"
+    - family-names: "Jansen"
+      given-names: "J"
+    - family-names: "Patel"
+      given-names: "R"
+    - family-names: "Osei"
+      given-names: "E"
+  title: "An open-source toolkit for shielding calculations in diagnostic imaging and nuclear medicine"
+  journal: "Journal of Applied Clinical Medical Physics"
+  volume: 26
+  issue: 5
+  year: 2025
+  doi: "10.1002/acm2.70084"

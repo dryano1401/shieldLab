@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# Conda
+.conda/
+opengate_env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Output files
+output/
+*.mhd
+*.raw
+*.csv
+*.png
+*.pdf
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+
+# OS specific
+Thumbs.db
+desktop.ini
+
+# GATE specific
+*.root
+*.dat
+*.mac
+GateMaterials.db
+
+# Keep output directory structure but ignore contents
+!output/.gitkeep
