@@ -1,7 +1,8 @@
 """
 shieldLabGUI.py  —  GUI launcher for shieldLabSim.py
 """
-
+import matplotlib
+matplotlib.use('TkAgg')
 import os
 import sys
 import subprocess
@@ -839,16 +840,29 @@ class GateArcher(tk.Tk):
         outdir=Path(self.v_af_outdir.get().strip() or "output").resolve(); interact=self.v_af_interactive.get()
         if not outdir.exists(): messagebox.showerror("Not found",str(outdir)); return
         self._clear_archer(); self._archer_emit(f"Fitting {nuc}/{bar}","header")
-        def _w():
+        
+        # Interactive tuner MUST run in main thread (matplotlib TkAgg requirement)
+        if interact:
             import io,contextlib
             try:
                 kw=self._get_archer_kwargs(); buf=io.StringIO()
-                with contextlib.redirect_stdout(buf): a,b,g,fvl=ai.analyze_one(nuc,bar,outdir,interactive=interact,make_plot=not interact,**kw)
-                for line in buf.getvalue().splitlines(): self.after(0,lambda l=line: self._archer_emit(l))
-                self.after(0,lambda: self._archer_emit(f"  RESULT: a={a:.7f} b={b:.7f} g={g:.7f}","value"))
+                with contextlib.redirect_stdout(buf): a,b,g,fvl=ai.analyze_one(nuc,bar,outdir,interactive=True,make_plot=False,**kw)
+                for line in buf.getvalue().splitlines(): self._archer_emit(line)
+                self._archer_emit(f"  RESULT: a={a:.7f} b={b:.7f} g={g:.7f}","value")
             except Exception as exc:
-                import traceback; self.after(0,lambda: self._archer_emit(f"ERROR: {exc}","error"))
-        threading.Thread(target=_w,daemon=True).start()
+                import traceback; self._archer_emit(f"ERROR: {exc}","error")
+        else:
+            # Non-interactive can run in background thread
+            def _w():
+                import io,contextlib
+                try:
+                    kw=self._get_archer_kwargs(); buf=io.StringIO()
+                    with contextlib.redirect_stdout(buf): a,b,g,fvl=ai.analyze_one(nuc,bar,outdir,interactive=False,make_plot=True,**kw)
+                    for line in buf.getvalue().splitlines(): self.after(0,lambda l=line: self._archer_emit(l))
+                    self.after(0,lambda: self._archer_emit(f"  RESULT: a={a:.7f} b={b:.7f} g={g:.7f}","value"))
+                except Exception as exc:
+                    import traceback; self.after(0,lambda: self._archer_emit(f"ERROR: {exc}","error"))
+            threading.Thread(target=_w,daemon=True).start()
     def _run_archer_all(self):
         if not AI_OK: return
         outdir=Path(self.v_af_outdir.get().strip() or "output").resolve(); self._clear_archer()

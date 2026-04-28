@@ -35,6 +35,7 @@ from pathlib import Path
 import numpy as np
 import SimpleITK as sitk
 import matplotlib
+matplotlib.use('TkAgg')  # Interactive backend for pop-up tuner window
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.ticker as ticker
@@ -827,9 +828,12 @@ def print_fvl_table(fvl_rows, nuclide, barrier, alpha, beta, gamma):
           + (f"  {'─'*8}" if pub else ""))
     for r in fvl_rows:
         r2v = r["r2_poly"] if r["method"]=="poly" else r["r2_exp"]
+        # Use Archer equation as fallback when local bracketing fails
+        x_display = r['x_local'] if math.isfinite(r['x_local']) else r['x_archer']
+        method_display = r['method'] if math.isfinite(r['x_local']) else "arch"
         row = (f"  {r['label']:<5}  {r['T_target']:>5.3f}  "
-               f"{r['x_archer']:>8.2f}  {r['x_local']:>8.2f}  "
-               f"{r['method']:>4}  {r2v:>6.4f}  "
+               f"{r['x_archer']:>8.2f}  {x_display:>8.2f}  "
+               f"{method_display:>4}  {r2v:>6.4f}  "
                f"{r['delta_pct']:>5.1f}%  "
                f"{'v' if r['accepted'] else 'X':>2}")
         if pub:
@@ -893,6 +897,10 @@ def launch_interactive_tuner(nuclide, barrier,
     tail_n  = min(DEFAULT_ALPHA_TAIL_N, int(valid_m.sum()))
     tail_min= np.sort(t_arr[valid_m])[-tail_n] if tail_n>0 else t_arr.max()
 
+    # Clean up any previous figures and force interactive backend
+    plt.close('all')
+    plt.switch_backend('TkAgg')
+    
     # Slider ranges
     a_span = max(alpha_tail*0.5, alpha_tail*alpha_tol*3)
     a_min  = max(1e-6, alpha_tail-a_span); a_max = alpha_tail+a_span
@@ -1184,7 +1192,8 @@ def launch_interactive_tuner(nuclide, barrier,
              f"ODR weights: sx={0.5} mm, sy=sigma_T",
              fontsize=7.5,color="#440000",style="italic")
 
-    redraw(); plt.show()
+    redraw()
+    plt.show()  # Display interactive tuner window
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
