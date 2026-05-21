@@ -742,16 +742,76 @@ def collect_transmission(nuclide, barrier, output_dir,
 # MAIN FIT PIPELINE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def select_fit_points(thicknesses, transmissions, n_points=None, min_T=None):
+def select_fit_points(thicknesses, transmissions, n_points=None, min_T=None, 
+                       start_idx=None, end_idx=None):
+    """
+    Select points for Archer fitting.
+    
+    Parameters
+    ----------
+    thicknesses : array
+        Barrier thickness values
+    transmissions : array
+        Transmission factor values
+    n_points : int, optional
+        Maximum number of points from the front (legacy)
+    min_T : float, optional
+        Minimum transmission value threshold
+    start_idx : int, optional
+        Starting index for range selection (0-based, inclusive)
+    end_idx : int, optional
+        Ending index for range selection (0-based, inclusive)
+        Use -1 or None for last point
+    
+    Returns
+    -------
+    mask : bool array
+        Boolean mask of selected points
+    """
     mask = transmissions > 0
-    if min_T is not None: mask &= transmissions >= min_T
-    if n_points is not None and n_points > 0:
+    if min_T is not None: 
+        mask &= transmissions >= min_T
+    
+    # Range-based selection (new method)
+    if start_idx is not None or end_idx is not None:
         idx = np.where(mask)[0]
-        if len(idx) > n_points: mask[idx[n_points:]] = False
+        if len(idx) == 0:
+            return mask
+        
+        # Handle start index
+        if start_idx is None:
+            start_idx = 0
+        elif start_idx < 0:
+            start_idx = len(idx) + start_idx
+        start_idx = max(0, min(start_idx, len(idx) - 1))
+        
+        # Handle end index
+        if end_idx is None or end_idx == -1:
+            end_idx = len(idx) - 1
+        elif end_idx < 0:
+            end_idx = len(idx) + end_idx
+        end_idx = max(0, min(end_idx, len(idx) - 1))
+        
+        # Ensure start <= end
+        if start_idx > end_idx:
+            start_idx, end_idx = end_idx, start_idx
+        
+        # Create new mask with only the range
+        range_mask = np.zeros_like(mask)
+        range_mask[idx[start_idx:end_idx+1]] = True
+        mask = mask & range_mask
+    
+    # Legacy n_points selection (from front)
+    elif n_points is not None and n_points > 0:
+        idx = np.where(mask)[0]
+        if len(idx) > n_points: 
+            mask[idx[n_points:]] = False
+    
     return mask
 
 def fit_archer_full(thicknesses, transmissions, sigma_T,
                     n_points=None, min_T=None,
+                    start_idx=None, end_idx=None,
                     alpha_tail_n=DEFAULT_ALPHA_TAIL_N,
                     alpha_tol=DEFAULT_ALPHA_TOL,
                     thickness_unc_mm=0.5,
@@ -761,7 +821,8 @@ def fit_archer_full(thicknesses, transmissions, sigma_T,
       Step 1: alpha from OLS on ln T vs x (last alpha_tail_n valid points)
       Step 2: ODR with alpha pinned near alpha_tail, beta+gamma free
     """
-    fit_mask = select_fit_points(thicknesses, transmissions, n_points, min_T)
+    fit_mask = select_fit_points(thicknesses, transmissions, n_points, min_T,
+                                   start_idx, end_idx)
     x  = thicknesses[fit_mask]
     y  = transmissions[fit_mask]
     sy = sigma_T[fit_mask]
@@ -1289,6 +1350,7 @@ def analyze_one(nuclide, barrier, output_dir,
                 interactive=True, make_plot=True,
                 target_unc=DEFAULT_TARGET_UNC,
                 fit_points=None, fit_min_T=None,
+                start_idx=None, end_idx=None,
                 alpha_tail_n=DEFAULT_ALPHA_TAIL_N,
                 alpha_tol=DEFAULT_ALPHA_TOL,
                 thickness_unc_mm=0.5):
@@ -1302,6 +1364,7 @@ def analyze_one(nuclide, barrier, output_dir,
      fit_mask,alpha_tail,r2_tail,_) = fit_archer_full(
         thicknesses,transmissions,sigma_T,
         n_points=fit_points,min_T=fit_min_T,
+        start_idx=start_idx,end_idx=end_idx,
         alpha_tail_n=alpha_tail_n,alpha_tol=alpha_tol,
         thickness_unc_mm=thickness_unc_mm,
         nuclide=nuclide,barrier=barrier)
@@ -1330,7 +1393,7 @@ def analyze_all(output_dir, target_unc=DEFAULT_TARGET_UNC,
                 alpha_tail_n=DEFAULT_ALPHA_TAIL_N,
                 alpha_tol=DEFAULT_ALPHA_TOL):
     rows=[]
-    for nuclide in ["Lu177","Tc99m","I131","F18","Zr89"]:
+    for nuclide in ["Lu177","Tc99m","I131","F18","Zr89","I123","Ga68","I124","Rb82","In111","Cu64"]:
         for barrier in ["Lead","LWConcrete","NWConcrete","Steel","Glass","Gypsum"]:
             if not (list(output_dir.glob(f"{nuclide}_{barrier}_*mm_dose.mhd"))+
                     list(output_dir.glob(f"{nuclide}_{barrier}_*mm_edep.mhd"))):
@@ -1375,7 +1438,7 @@ Examples:
   python analyze_interactive.py --example
         """)
     p.add_argument("--nuclide",default="F18",
-                   choices=["F18","Tc99m","I131","Lu177","Zr89"])
+                   choices=["F18","Tc99m","I131","Lu177","Zr89","Ga68","I124","I123","Rb82","Cu64"])
     p.add_argument("--barrier",default="Lead",
                    choices=["Lead","LWConcrete","NWConcrete",
                              "Steel","Glass","Gypsum"])
@@ -1384,6 +1447,10 @@ Examples:
     p.add_argument("--target-unc",type=float,default=DEFAULT_TARGET_UNC)
     p.add_argument("--fit-points",type=int,default=None)
     p.add_argument("--fit-min-T",type=float,default=None)
+    p.add_argument("--fit-start-idx",type=int,default=None,
+                   help="Start index for fit range (0-based, inclusive)")
+    p.add_argument("--fit-end-idx",type=int,default=None,
+                   help="End index for fit range (0-based, inclusive, -1 for last)")
     p.add_argument("--alpha-tail-n",type=int,default=DEFAULT_ALPHA_TAIL_N,
                    help=f"Tail points for alpha OLS (default {DEFAULT_ALPHA_TAIL_N})")
     p.add_argument("--alpha-tol",type=float,default=DEFAULT_ALPHA_TOL,
@@ -1412,6 +1479,8 @@ def main():
                 target_unc=args.target_unc,
                 fit_points=args.fit_points,
                 fit_min_T=args.fit_min_T,
+                start_idx=args.fit_start_idx,
+                end_idx=args.fit_end_idx,
                 alpha_tail_n=args.alpha_tail_n,
                 alpha_tol=args.alpha_tol,
                 thickness_unc_mm=args.thickness_unc)

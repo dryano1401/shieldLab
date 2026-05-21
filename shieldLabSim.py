@@ -115,7 +115,8 @@ def plot_xray_spectrum(kVp,al_filter_mm,cu_filter_mm,output_dir,n_bins=128,save=
         ax.text(ec+0.8,hc+0.02,cn[i] if i<len(cn) else f'K{i}',color='#C1121F',fontsize=8,va='bottom')
     if char_lines: ax.axvline(x=-999,color='#C1121F',lw=2.5,label='W char lines')
     ax.axvline(mean_E,color='#2D6A4F',lw=1.5,ls=':',label=f'Mean E = {mean_E:.1f} keV')
-    ax.set_xlabel("Photon Energy (keV)"); ax.set_ylabel("Relative Fluence"); ax.set_title(f"X-ray Spectrum — {kVp:.0f} kVp / {fd}")
+    ax.axvline(hvl,color='#FF6B35',lw=1.5,ls=':',alpha=0.7,label=f'HVL(Al) ≈ {hvl:.2f} mm')
+    ax.set_xlabel("Photon Energy (keV)"); ax.set_ylabel("Relative Fluence"); ax.set_title(f"X-ray Spectrum — {kVp:.0f} kVp / {fd} / HVL(Al) ≈ {hvl:.2f} mm")
     ax.set_xlim(0,kVp*1.06); ax.set_ylim(0,1.20); ax.legend(loc='upper left',fontsize=9); ax.grid(True,alpha=0.25)
     if save:
         output_dir.mkdir(parents=True,exist_ok=True)
@@ -147,7 +148,7 @@ CUSTOM_MATERIALS = {
 BARRIER_MATERIAL_MAP = {"Lead":"G4_Pb","LWConcrete":"LWConcrete","NWConcrete":"NWConcrete","Glass":"GlassNM","Gypsum":"Gypsum","Steel":"A514Steel","Air":"G4_AIR"}
 
 PHOTON_SPECTRA = {
-    "Lu177":[(0.05579,0.1105),(0.05765,0.1937),(0.06513,0.0472),(0.06701,0.0133),(0.11295,0.0623),(0.20837,0.1105)],
+    "Lu177":[(0.05461, 0.0157),(0.05578, 0.0270),(0.06298, 0.00303),(0.06324, 0.00586),(0.1129,  0.0623),(0.2083,  0.104),(0.2496,  0.00199),(0.3213,  0.00218)],
     "Tc99m":[(0.14051,0.8907)],"I131":[(0.08020,0.02620),(0.28430,0.06120),(0.36453,0.81200),(0.63699,0.07260),(0.72290,0.01770)],
     "F18":[(0.51100,1.93500)],"Zr89":[(0.51100,0.4550),(0.90915,0.9904),(1.65700,0.0010),(1.71300,0.0077),(1.74400,0.0013)],
     "Cu64":[(0.51100,0.3514),(1.34577,0.00473)],"Ga68":[(0.51100,1.7800),(1.07734,0.03220),(1.88316,0.00137)],
@@ -168,7 +169,7 @@ THICKNESS_SWEEPS = {
     ("Tc99m","Glass"):[30,60,90,120,155,195,245,300],("Tc99m","Gypsum"):[80,160,240,320,420,540,680,850],
     ("I131","Lead"):[4,8,12,16,21,27,34,42,52,64,78],("I131","NWConcrete"):[30,60,90,120,155,195,240,295,365,460],
     ("I131","LWConcrete"):[45,90,135,180,230,295,370,460,580],("I131","Steel"):[10,20,30,40,52,66,84,105,130],
-    ("F18","Lead"):[5,10,15,20,26,33,41,50,60,72,87],("F18","NWConcrete"):[50,100,150,200,250,305,370,450,555],
+    ("F18","Lead"):[0.5,1,2,4,8,12,16,20],("F18","NWConcrete"):[50,100,150,200,250,305,370,450,555],
     ("F18","LWConcrete"):[65,130,200,270,350,440,550,690,800],("F18","Steel"):[15,30,45,60,75,95,115,140,170],
     ("Zr89","Lead"):[5,10,15,20,25,31,38,46,55,66,80],("Zr89","NWConcrete"):[50,100,150,200,250,305,370,450,555],
     ("Zr89","LWConcrete"):[70,140,215,290,375,470,590,740,860],("Zr89","Steel"):[15,30,45,60,80,100,125,155,190],
