@@ -49,20 +49,65 @@ SIM_SCRIPT = SCRIPT_DIR / "shieldLabSim.py"
 
 NUCLIDES = ["F18","Tc99m","I131","Lu177","Zr89","Cu64","Ga68","In111","I123","I124","Rb82","Ac225","At211","Y90","Xe133"]
 BARRIERS = ["Lead","Steel","NWConcrete","LWConcrete","Glass","Gypsum"]
+# Water first: Oumano's Table 2/3 broad-beam curves are what this GUI defaults
+# to reproducing, and the tissue block in that geometry is muscle in the paper
+# but the sim's own default (and this GUI's default) is G4_WATER.
+# "OumanoMuscle" (2nd entry) is a custom material built to match Oumano et al.
+# 2025 Table 1's own muscle composition/density digit-for-digit (see
+# CUSTOM_MATERIALS in shieldLabSim.py) — NOT the same as the stock
+# G4_MUSCLE_SKELETAL_ICRP entry below it, which is Geant4's own NIST-derived
+# skeletal-muscle composition and does NOT match Table 1 exactly (that
+# distinction matters: an earlier investigation session tested
+# G4_MUSCLE_SKELETAL_ICRP as a stand-in for "the paper's phantom material" and
+# it is not an exact match — this label used to incorrectly say "Oumano Table
+# 1" for that entry; fixed here).
 PHANTOM_DISPLAY = [
-    "G4_MUSCLE_SKELETAL_ICRP  (skeletal muscle)","G4_WATER                 (liquid water)",
+    "G4_WATER                 (liquid water)  [default]","OumanoMuscle             (muscle — exact Oumano 2025 Table 1 match)",
+    "G4_MUSCLE_SKELETAL_ICRP  (skeletal muscle — Geant4/NIST, NOT Table 1)",
     "G4_TISSUE_SOFT_ICRP      (soft tissue)","G4_BONE_CORTICAL_ICRP    (cortical bone)",
     "G4_BONE_COMPACT_ICRU     (compact bone)","G4_LUNG_ICRP             (lung)",
     "G4_BRAIN_ICRP            (brain)","G4_ADIPOSE_TISSUE_ICRP   (adipose/fat)","G4_SKIN_ICRP             (skin)",
 ]
 PHANTOM_VALUES = [
-    "G4_MUSCLE_SKELETAL_ICRP","G4_WATER","G4_TISSUE_SOFT_ICRP","G4_BONE_CORTICAL_ICRP",
+    "G4_WATER","OumanoMuscle","G4_MUSCLE_SKELETAL_ICRP","G4_TISSUE_SOFT_ICRP","G4_BONE_CORTICAL_ICRP",
     "G4_BONE_COMPACT_ICRU","G4_LUNG_ICRP","G4_BRAIN_ICRP","G4_ADIPOSE_TISSUE_ICRP","G4_SKIN_ICRP",
 ]
+# Geant4 EM physics list — normally auto-selected by shieldLabSim.py (option4 for
+# --source-type xray, option3 otherwise). Exposed here so it can be swapped without
+# editing code, e.g. to test whether option4's more refined low-energy Compton/
+# Rayleigh/atomic-relaxation treatment narrows the ~4-9% gap observed between this
+# code (GATE 10 / opengate) and Oumano's published Table 3 broad-beam values at the
+# F-18 HVL points (Lead +4%, NW/LW concrete both about -9%, at 20e6 primaries).
+PHYSICS_LIST_DISPLAY = [
+    "Auto (option4 xray / option3 nuclide)  [default]",
+    "G4EmStandardPhysics_option1  (fast, least accurate)",
+    "G4EmStandardPhysics_option2",
+    "G4EmStandardPhysics_option3  (balanced accuracy/speed)",
+    "G4EmStandardPhysics_option4  (most accurate low-energy EM)",
+    "G4EmLivermorePhysics  (Livermore low-energy data tables)",
+    "G4EmPenelopePhysics  (Penelope low-energy models)",
+]
+PHYSICS_LIST_VALUES = [
+    "auto","G4EmStandardPhysics_option1","G4EmStandardPhysics_option2","G4EmStandardPhysics_option3",
+    "G4EmStandardPhysics_option4","G4EmLivermorePhysics","G4EmPenelopePhysics",
+]
+# "original" = pass no detector flags at all -> inherits shieldLabSim.py's own
+# defaults: 10 mm depth (Oumano's "1 cm into the tissue block"), 4 planes so
+# arr[1:3]=5-15 mm, 250x250 mm footprint (comfortable margin around the
+# 150 mm ROI). NOT the literal full 2x2 m block: that was tried and measurably
+# lowered T at matched depth/thickness (e.g. NW concrete at 78.6 mm went
+# 0.452 -> 0.399) — suspected interaction between --unc-goal's per-voxel
+# early-stop and a mostly-empty 2.56M-voxel array, still under investigation.
+# 250x250 mm is the footprint that reproduced Oumano's Table 3 to within
+# cross-validated tolerances; pass explicit --detector-size-x/y 2000 (or fill
+# in the size fields below) if you want the literal full-block footprint
+# anyway. "centered" is the pre-fix legacy depth (--detector-centered), kept
+# only for comparison.
 DETECTOR_OPTIONS = [
-    ("Original — 4-voxel slab centred in phantom (~250 mm)","original"),
-    ("Entrance face  (2.5 mm from front surface)","face"),("1 cm depth","1cm"),("2 cm depth","2cm"),
-    ("5 cm depth","5cm"),("10 cm depth","10cm"),("Custom depth (specify below)","custom"),
+    ("Oumano default — 1 cm depth, 250×250 mm footprint  [default]","original"),
+    ("LEGACY — 4-voxel slab centred in phantom (~250 mm depth, pre-fix)","centered"),
+    ("Entrance face  (2.5 mm from front surface)","face"),("1 cm depth (same as default, explicit)","1cm"),
+    ("2 cm depth","2cm"),("5 cm depth","5cm"),("10 cm depth","10cm"),("Custom depth (specify below)","custom"),
 ]
 RUN_MODES = [
     ("Single point","single"),("Thickness sweep","sweep"),("Angle sweep","angle_sweep"),
@@ -95,7 +140,67 @@ def mk_btn(parent,text,cmd,bg=BG3,fg=FG,font=None,**kw):
 def grid_row(parent,r,label_text,widget,hint=""):
     mk_lbl(parent,label_text,anchor="w").grid(row=r,column=0,sticky="w",padx=(8,4),pady=3)
     widget.grid(row=r,column=1,sticky="ew",padx=(0,4),pady=3)
-    if hint: mk_lbl(parent,hint,fg=FG2,font=F_SMALL).grid(row=r,column=2,sticky="w",padx=(0,8),pady=3)
+    if hint:
+        # wraplength keeps a long hint string from forcing column 2 (and thus
+        # the whole left pane) wider than intended -- without this, one long
+        # hint can push the entry/combo column off-screen until the pane is
+        # manually dragged wider.
+        mk_lbl(parent,hint,fg=FG2,font=F_SMALL,wraplength=180,justify="left").grid(
+            row=r,column=2,sticky="w",padx=(0,8),pady=3)
+
+
+class _Tooltip:
+    """
+    Small hover tooltip: shows `text` in a borderless popup near the pointer
+    while it's over `widget`, hides on leave. Used in place of an always-
+    visible explainer label so a long description doesn't cost permanent
+    vertical space in an already-tight panel (see mk_info_icon() below) --
+    added specifically because the Archer Fit tab's fixed-height side panel
+    ran out of room once several such explainer labels accumulated.
+    """
+    def __init__(self, widget, text, wraplength=320):
+        self.widget = widget; self.text = text; self.wraplength = wraplength
+        self.tip = None
+        widget.bind("<Enter>", self._show)
+        widget.bind("<Leave>", self._hide)
+        widget.bind("<ButtonPress>", self._hide)
+
+    def _show(self, _evt=None):
+        if self.tip is not None or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 16
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self.tip = tk.Toplevel(self.widget)
+        self.tip.wm_overrideredirect(True)
+        self.tip.wm_geometry(f"+{x}+{y}")
+        try:
+            self.tip.attributes("-topmost", True)
+        except Exception:
+            pass
+        lbl = tk.Label(self.tip, text=self.text, justify="left",
+                        bg="#0d1117", fg=FG, font=F_SMALL,
+                        wraplength=self.wraplength, padx=8, pady=6,
+                        relief="solid", bd=1, highlightbackground=BORDER)
+        lbl.pack()
+
+    def _hide(self, _evt=None):
+        if self.tip is not None:
+            self.tip.destroy(); self.tip = None
+
+
+def mk_info_icon(parent, text, wraplength=320):
+    """
+    Small "ⓘ" label that shows `text` as a hover tooltip instead of an
+    always-visible explainer -- use this in place of a long wraplength hint
+    label wherever the explanation is useful but doesn't need to occupy
+    permanent space in the layout (e.g. a fit method's multi-clause
+    description). Caller is responsible for .grid()/.pack()-ing the
+    returned widget wherever it belongs.
+    """
+    lbl = tk.Label(parent, text=" ⓘ", fg=ACCENT, bg=BG2, font=F_SMALL,
+                    cursor="question_arrow")
+    _Tooltip(lbl, text, wraplength=wraplength)
+    return lbl
 
 
 class VRMLViewerWindow(tk.Toplevel):
@@ -467,6 +572,11 @@ class GateArcher(tk.Tk):
         self.title("Shield Lab — GATE 10 Shielding Simulation"); self.configure(bg=BG)
         self.geometry("1320x860"); self.minsize(1060,700)
         self._proc=None; self._q=queue.Queue()
+        # Job queue: list of {"label":str,"cmd":[...]} snapshots, run consecutively
+        # by _run_queue()/_queue_job_finished(). _queue_pos indexes the job currently
+        # in flight (or about to be launched); _queue_stop_requested is set by _stop()
+        # to halt the queue after the in-flight job ends rather than skipping ahead.
+        self._job_queue=[]; self._queue_running=False; self._queue_stop_requested=False; self._queue_pos=0
         self._vars(); self._ttk_style(); self._layout(); self._traces()
         self._on_src_type(); self._on_det_mode(); self._refresh(); self._vrml_refresh()
         self.after(100,self._poll)
@@ -476,22 +586,41 @@ class GateArcher(tk.Tk):
         self.v_kvp=tk.StringVar(value="120"); self.v_al=tk.StringVar(value="2.5")
         self.v_cu=tk.StringVar(value="0.0"); self.v_kbins=tk.StringVar(value="128")
         self.v_barrier=tk.StringVar(value="Lead"); self.v_thick=tk.StringVar(value="5.0")
-        self.v_phantom=tk.StringVar(value=PHANTOM_DISPLAY[0])
+        self.v_phantom=tk.StringVar(value=PHANTOM_DISPLAY[0])   # G4_WATER — Oumano-replication default
+        self.v_physics=tk.StringVar(value=PHYSICS_LIST_DISPLAY[0])   # auto — matches shieldLabSim.py's own default
+        # Geant4 production cuts (range thresholds for gamma/e-/e+) — advanced option.
+        # Tissue cut default is 0.01 mm (matches shieldLabSim.py's own default) —
+        # originally 1.0 mm (the old hardcoded scheme), tightened after Session 18's
+        # cuts A/B test found tightening to 0.01 mm moved T@5-15mm from -10.8% to
+        # -0.9% vs Oumano's target (+3.64σ) — the largest effect found in the whole
+        # investigation — by forcing far more complete secondary-electron/
+        # bremsstrahlung tracking instead of merging that energy into continuous
+        # local deposition. Tighter cuts cost more runtime (~20% slower at 0.01 mm
+        # in the session-18 test). Barrier cut default (0.1 mm) is unchanged from
+        # the original hardcoded scheme — tightening it further showed no measured
+        # benefit.
+        self.v_tissue_cut=tk.StringVar(value="0.01"); self.v_barrier_cut=tk.StringVar(value="0.1")
         self.v_det=tk.StringVar(value="original"); self.v_depth=tk.StringVar(value="10.0")
         self.v_det_sx=tk.StringVar(value=""); self.v_det_sy=tk.StringVar(value=""); self.v_det_sz=tk.StringVar(value="")
         self.v_angle=tk.StringVar(value="0.0"); self.v_angles=tk.StringVar(value="0 15 30 45 60")
         self.v_mode=tk.StringVar(value="single"); self.v_n=tk.StringVar(value="2000000000")
         self.v_test=tk.BooleanVar(value=False); self.v_threads=tk.StringVar(value="1")
         self.v_jobs=tk.StringVar(value="1"); self.v_auto=tk.BooleanVar(value=False)
+        self.v_workers=tk.StringVar(value="1"); self.v_seed=tk.StringVar(value="")
         self.v_unc=tk.StringVar(value="0.02"); self.v_split=tk.BooleanVar(value=False)
-        self.v_nocone=tk.BooleanVar(value=False); self.v_coneang=tk.StringVar(value="")
+        # 90 deg cone half-angle is shown explicitly (not left blank) so the command
+        # preview always makes it visible: theta=[180-90,180]=[90,180] deg, which is
+        # the full 2-pi hemisphere toward the barrier Oumano's source uses (GATE
+        # measures theta from -z). Mathematically identical to "Disable cone source"
+        # below; shown as an explicit number here so it's never ambiguous.
+        self.v_nocone=tk.BooleanVar(value=False); self.v_coneang=tk.StringVar(value="90")
         self.v_verbose=tk.BooleanVar(value=False); self.v_outdir=tk.StringVar(value="output")
         self.v_dose=tk.BooleanVar(value=False); self.v_uncout=tk.BooleanVar(value=False)
         self.v_vis=tk.BooleanVar(value=False); self.v_vistype=tk.StringVar(value="vrml_file_only")
         self.v_countphot=tk.BooleanVar(value=False); self.v_sweep_to_cvl=tk.BooleanVar(value=False)
         self.v_sp_shape=tk.StringVar(value="none"); self.v_sp_rx=tk.StringVar(value="100.0")
         self.v_sp_ry=tk.StringVar(value="70.0"); self.v_sp_rz=tk.StringVar(value="100.0")
-        self.v_sp_mat=tk.StringVar(value=PHANTOM_DISPLAY[1])
+        self.v_sp_mat=tk.StringVar(value=PHANTOM_DISPLAY[0])   # G4_WATER default (source phantom itself is off by default)
         self.v_sp_ox=tk.StringVar(value="0.0"); self.v_sp_oy=tk.StringVar(value="0.0"); self.v_sp_oz=tk.StringVar(value="0.0")
         self.v_vrml_viewer=tk.StringVar(value="")
         self.v_air_edep=tk.StringVar(value=""); self.v_air_unc=tk.StringVar(value="")
@@ -502,10 +631,19 @@ class GateArcher(tk.Tk):
         self.v_af_thick_unc=tk.StringVar(value="0.5"); self.v_af_fit_min_T=tk.StringVar(value="")
         self.v_af_fit_points=tk.StringVar(value=""); self.v_af_interactive=tk.BooleanVar(value=True)
         self.v_af_start_idx=tk.StringVar(value=""); self.v_af_end_idx=tk.StringVar(value="")
+        self.v_af_min_nonzero_pct=tk.StringVar(value="")
+        self.v_af_fit_method=tk.StringVar(value="odr")
+        self.v_af_anchor_alpha_global=tk.BooleanVar(value=False)
+        self.v_af_fvl_weight=tk.StringVar(value="1.0")
+        self.v_af_fvl_layer_weights=tk.StringVar(value="")
 
     def _phantom_val(self):
         try: return PHANTOM_VALUES[PHANTOM_DISPLAY.index(self.v_phantom.get())]
-        except: return "G4_MUSCLE_SKELETAL_ICRP"
+        except: return "G4_WATER"
+
+    def _physics_val(self):
+        try: return PHYSICS_LIST_VALUES[PHYSICS_LIST_DISPLAY.index(self.v_physics.get())]
+        except: return "auto"
 
     def _ttk_style(self):
         s=ttk.Style(self); s.theme_use("clam")
@@ -530,10 +668,54 @@ class GateArcher(tk.Tk):
         nb=ttk.Notebook(left,style="Dark.TNotebook"); nb.pack(fill="both",expand=True)
         def tab(title):
             f=tk.Frame(nb,bg=BG2); f.columnconfigure(1,weight=1); nb.add(f,text=f"  {title}  "); return f
+        def scrollable_tab(title):
+            # Same fixed-width "left" panel every other tab lives in has no
+            # room to grow -- a tab whose content (rows of fields + buttons +
+            # a results box) exceeds the panel's height would otherwise just
+            # get clipped, with no way to reach whatever falls below the
+            # bottom edge (this is exactly what happened to Archer Fit once
+            # the odr_fvl method's extra row was added on top of everything
+            # already there). Wrap this tab's content in a Canvas+Scrollbar
+            # so it scrolls instead of overflowing -- the returned frame `f`
+            # is used exactly like a plain tab() frame by the caller; only
+            # the container around it differs.
+            page=tk.Frame(nb,bg=BG2); nb.add(page,text=f"  {title}  ")
+            canvas=tk.Canvas(page,bg=BG2,highlightthickness=0)
+            vsb=tk.Scrollbar(page,orient="vertical",command=canvas.yview,
+                              bg=BG3,troughcolor=BG2,relief="flat",width=10)
+            canvas.configure(yscrollcommand=vsb.set)
+            canvas.pack(side="left",fill="both",expand=True)
+            vsb.pack(side="right",fill="y")
+            f=tk.Frame(canvas,bg=BG2); f.columnconfigure(1,weight=1)
+            win=canvas.create_window((0,0),window=f,anchor="nw")
+            def _on_frame_config(_evt=None):
+                canvas.configure(scrollregion=canvas.bbox("all"))
+            f.bind("<Configure>",_on_frame_config)
+            def _on_canvas_config(evt):
+                canvas.itemconfig(win,width=evt.width)
+            canvas.bind("<Configure>",_on_canvas_config)
+            def _on_wheel(evt):
+                delta = evt.delta if evt.delta else (120 if evt.num==4 else -120)
+                canvas.yview_scroll(int(-1*(delta/120)),"units")
+                return "break"
+            # Bind wheel events directly on this canvas (not bind_all) so
+            # scrolling here can never suppress/steal wheel events bound
+            # elsewhere in the app (e.g. the VTK viewer canvas's own wheel
+            # handling, or the queue/VRML listbox scrollbars) -- Tk still
+            # routes wheel events to whichever widget the pointer is over,
+            # so a plain per-widget bind is sufficient and safer than a
+            # global bind_all/unbind_all pair tied to Enter/Leave.
+            canvas.bind("<MouseWheel>",_on_wheel)
+            canvas.bind("<Button-4>",_on_wheel)
+            canvas.bind("<Button-5>",_on_wheel)
+            f.bind("<MouseWheel>",_on_wheel)
+            f.bind("<Button-4>",_on_wheel)
+            f.bind("<Button-5>",_on_wheel)
+            return f
         self._build_source(tab("Source")); self._build_barrier(tab("Barrier & Phantom"))
         self._build_detector(tab("Detector")); self._build_angle_mode(tab("Angle & Mode"))
         self._build_options(tab("Options")); self._build_analysis(tab("Analysis ⚗"))
-        self._build_archer_fit(tab("Archer Fit 📈"))
+        self._build_archer_fit(scrollable_tab("Archer Fit 📈"))
         right=tk.Frame(body,bg=BG); body.add(right,minsize=500); self._build_right(right)
 
     def _open_mhd_viewer(self):
@@ -606,6 +788,17 @@ class GateArcher(tk.Tk):
         grid_row(self._sp_offset_fr,1,"    Offset Y",mk_entry(self._sp_offset_fr,self.v_sp_oy,10),"mm")
         grid_row(self._sp_offset_fr,2,"    Offset Z",mk_entry(self._sp_offset_fr,self.v_sp_oz,10),"mm (+Z→barrier)")
         grid_row(f,13,"    Material",mk_combo(f,self.v_sp_mat,PHANTOM_DISPLAY,36))
+        tk.Frame(f,bg=BORDER,height=1).grid(row=14,column=0,columnspan=3,sticky="ew",padx=8,pady=(12,4))
+        mk_lbl(f,"Physics",fg=ACCENT,font=F_BOLD).grid(row=15,column=0,columnspan=3,sticky="w",padx=8,pady=(4,2))
+        grid_row(f,16,"EM physics list",mk_combo(f,self.v_physics,PHYSICS_LIST_DISPLAY,36),
+                 "auto = option4 (xray) / option3 (nuclide)")
+        tk.Frame(f,bg=BORDER,height=1).grid(row=17,column=0,columnspan=3,sticky="ew",padx=8,pady=(12,4))
+        mk_lbl(f,"Advanced — Production Cuts",fg=ACCENT,font=F_BOLD).grid(row=18,column=0,columnspan=3,sticky="w",padx=8,pady=(4,2))
+        mk_lbl(f,"  Range thresholds for secondary e-/e+/brem tracking. Tissue cut default",fg=FG2,font=F_SMALL).grid(row=19,column=0,columnspan=3,sticky="w",padx=8,pady=(0,0))
+        mk_lbl(f,"  is 0.01 mm (tightened from the original 1.0 mm) to unlock Compton",fg=FG2,font=F_SMALL).grid(row=20,column=0,columnspan=3,sticky="w",padx=8,pady=(0,0))
+        mk_lbl(f,"  secondaries for low-energy lines, at some extra runtime cost — see project notes.",fg=FG2,font=F_SMALL).grid(row=21,column=0,columnspan=3,sticky="w",padx=8,pady=(0,4))
+        grid_row(f,22,"    Tissue cut",mk_entry(f,self.v_tissue_cut,10),"mm (default 0.01)")
+        grid_row(f,23,"    Barrier cut",mk_entry(f,self.v_barrier_cut,10),"mm (default 0.1)")
         self._on_sp_shape()
 
     def _build_detector(self,f):
@@ -616,12 +809,12 @@ class GateArcher(tk.Tk):
         self._det_custom.grid(row=len(DETECTOR_OPTIONS)+1,column=0,columnspan=2,sticky="ew")
         grid_row(self._det_custom,0,"    Custom depth",mk_entry(self._det_custom,self.v_depth,10),"mm from tissue face")
         tk.Frame(f,bg=BORDER,height=1).grid(row=len(DETECTOR_OPTIONS)+2,column=0,columnspan=2,sticky="ew",padx=8,pady=(8,4))
-        mk_lbl(f,"Detector size (blank = default):",fg=FG,font=F_BOLD).grid(row=len(DETECTOR_OPTIONS)+3,column=0,columnspan=2,sticky="w",padx=8,pady=(4,2))
+        mk_lbl(f,"Detector size (blank = Oumano default):",fg=FG,font=F_BOLD).grid(row=len(DETECTOR_OPTIONS)+3,column=0,columnspan=2,sticky="w",padx=8,pady=(4,2))
         sz_fr=tk.Frame(f,bg=BG2); sz_fr.columnconfigure(1,weight=1)
         sz_fr.grid(row=len(DETECTOR_OPTIONS)+4,column=0,columnspan=2,sticky="ew")
-        grid_row(sz_fr,0,"    X size",mk_entry(sz_fr,self.v_det_sx,10),"mm (default 250)")
-        grid_row(sz_fr,1,"    Y size",mk_entry(sz_fr,self.v_det_sy,10),"mm (default 250)")
-        grid_row(sz_fr,2,"    Z size",mk_entry(sz_fr,self.v_det_sz,10),"mm (default 20 or 5)")
+        grid_row(sz_fr,0,"    X size",mk_entry(sz_fr,self.v_det_sx,10),"mm (default 250; 2000=full block, see Detector tab note)")
+        grid_row(sz_fr,1,"    Y size",mk_entry(sz_fr,self.v_det_sy,10),"mm (default 250; 2000=full block, see Detector tab note)")
+        grid_row(sz_fr,2,"    Z size",mk_entry(sz_fr,self.v_det_sz,10),"mm (default 20 -> 4 planes; need >=4 or ROI mask drops)")
         mk_lbl(f,"  Spacing: 2.5×2.5×5.0 mm. Voxels = size ÷ spacing.",fg=FG2,font=F_SMALL).grid(row=len(DETECTOR_OPTIONS)+5,column=0,columnspan=2,sticky="w",padx=8,pady=(0,6))
         f.columnconfigure(1,weight=1)
 
@@ -652,28 +845,42 @@ class GateArcher(tk.Tk):
         grid_row(f,1,"N primaries",mk_entry(f,self.v_n,16)); grid_row(f,2,"Threads",mk_entry(f,self.v_threads,6))
         grid_row(f,3,"Parallel jobs",mk_entry(f,self.v_jobs,6)); grid_row(f,4,"UNC goal",mk_entry(f,self.v_unc,8))
         grid_row(f,5,"Cone half-angle",mk_entry(f,self.v_coneang,8),"° (blank = default)")
-        cb1=tk.Frame(f,bg=BG2); cb1.grid(row=6,column=0,columnspan=3,sticky="w",padx=8,pady=4)
-        for var,text in [(self.v_test,"Test mode"),(self.v_auto,"Auto threads/jobs"),(self.v_split,"Photon splitting"),
+        # ── Parallelisation section ───────────────────────────────────────────
+        tk.Frame(f,bg=BORDER,height=1).grid(row=6,column=0,columnspan=3,sticky="ew",padx=8,pady=(4,2))
+        mk_lbl(f,"Parallelisation",fg=ACCENT,font=F_BOLD).grid(row=7,column=0,columnspan=3,sticky="w",padx=8,pady=(2,2))
+        par_fr=tk.Frame(f,bg=BG2); par_fr.grid(row=8,column=0,columnspan=3,sticky="w",padx=8,pady=2)
+        mk_lbl(par_fr,"Workers (split events)",anchor="w").pack(side="left",padx=(0,4))
+        mk_entry(par_fr,self.v_workers,6).pack(side="left",padx=(0,12))
+        mk_lbl(par_fr,"Random seed",anchor="w").pack(side="left",padx=(0,4))
+        mk_entry(par_fr,self.v_seed,14).pack(side="left",padx=(0,4))
+        mk_lbl(par_fr,"(blank=auto)",anchor="w",fg="#888888").pack(side="left")
+        # ── cpu info label (updates on refresh) ──────────────────────────────
+        import os; ncpu=os.cpu_count() or 1
+        self._cpu_lbl=mk_lbl(f,f"Available CPUs: {ncpu}",fg="#888888",font=F_SMALL)
+        self._cpu_lbl.grid(row=8,column=2,sticky="e",padx=8)
+        # ── Checkboxes ────────────────────────────────────────────────────────
+        cb1=tk.Frame(f,bg=BG2); cb1.grid(row=9,column=0,columnspan=3,sticky="w",padx=8,pady=4)
+        for var,text in [(self.v_test,"Test mode"),(self.v_auto,"Auto jobs/workers/threads"),(self.v_split,"Photon splitting"),
                          (self.v_nocone,"Disable cone source"),(self.v_countphot,"Count photons"),(self.v_verbose,"Verbose")]:
             mk_check(cb1,var,text,self._refresh).pack(side="left",padx=(0,10))
-        cb2=tk.Frame(f,bg=BG2); cb2.grid(row=7,column=0,columnspan=3,sticky="w",padx=8,pady=(0,4))
+        cb2=tk.Frame(f,bg=BG2); cb2.grid(row=10,column=0,columnspan=3,sticky="w",padx=8,pady=(0,4))
         self._cvl_cb=mk_check(cb2,self.v_sweep_to_cvl,"Stop at CVL — nuclide sweep only",self._refresh)
         self._cvl_cb.pack(side="left",padx=(0,10))
-        tk.Frame(f,bg=BORDER,height=1).grid(row=9,column=0,columnspan=3,sticky="ew",padx=8,pady=(6,4))
-        mk_lbl(f,"Output",fg=ACCENT,font=F_BOLD).grid(row=10,column=0,columnspan=3,sticky="w",padx=8,pady=(4,2))
-        dir_fr=tk.Frame(f,bg=BG2); dir_fr.columnconfigure(1,weight=1); dir_fr.grid(row=10,column=0,columnspan=3,sticky="ew")
+        tk.Frame(f,bg=BORDER,height=1).grid(row=11,column=0,columnspan=3,sticky="ew",padx=8,pady=(6,4))
+        mk_lbl(f,"Output",fg=ACCENT,font=F_BOLD).grid(row=12,column=0,columnspan=3,sticky="w",padx=8,pady=(4,2))
+        dir_fr=tk.Frame(f,bg=BG2); dir_fr.columnconfigure(1,weight=1); dir_fr.grid(row=12,column=0,columnspan=3,sticky="ew")
         mk_lbl(dir_fr,"Output directory",anchor="w").grid(row=0,column=0,sticky="w",padx=(8,4),pady=3)
         mk_entry(dir_fr,self.v_outdir,22).grid(row=0,column=1,sticky="ew",padx=(0,4),pady=3)
         mk_btn(dir_fr,"…",self._browse,padx=6,pady=2).grid(row=0,column=2,padx=(0,8),pady=3)
-        grid_row(f,11,"Vis type",mk_combo(f,self.v_vistype,VIS_TYPES,18))
-        cb3=tk.Frame(f,bg=BG2); cb3.grid(row=12,column=0,columnspan=3,sticky="w",padx=8,pady=4)
+        grid_row(f,13,"Vis type",mk_combo(f,self.v_vistype,VIS_TYPES,18))
+        cb3=tk.Frame(f,bg=BG2); cb3.grid(row=14,column=0,columnspan=3,sticky="w",padx=8,pady=4)
         for var,text in [(self.v_dose,"Dose maps"),(self.v_uncout,"Uncertainty maps"),(self.v_vis,"Visualisation")]:
             mk_check(cb3,var,text,self._refresh).pack(side="left",padx=(0,10))
-        tk.Frame(f,bg=BORDER,height=1).grid(row=13,column=0,columnspan=3,sticky="ew",padx=8,pady=(8,4))
+        tk.Frame(f,bg=BORDER,height=1).grid(row=15,column=0,columnspan=3,sticky="ew",padx=8,pady=(8,4))
         vtk_col=GREEN if VTK_OK else YELLOW
-        mk_lbl(f,"VRML Viewer",fg=ACCENT,font=F_BOLD).grid(row=14,column=0,columnspan=2,sticky="w",padx=8,pady=(2,0))
-        mk_lbl(f,"VTK ✓" if VTK_OK else "VTK ✗",fg=vtk_col,font=F_SMALL).grid(row=14,column=2,sticky="e",padx=8,pady=(2,0))
-        vwr_fr=tk.Frame(f,bg=BG2); vwr_fr.columnconfigure(1,weight=1); vwr_fr.grid(row=15,column=0,columnspan=3,sticky="ew")
+        mk_lbl(f,"VRML Viewer",fg=ACCENT,font=F_BOLD).grid(row=16,column=0,columnspan=2,sticky="w",padx=8,pady=(2,0))
+        mk_lbl(f,"VTK ✓" if VTK_OK else "VTK ✗",fg=vtk_col,font=F_SMALL).grid(row=16,column=2,sticky="e",padx=8,pady=(2,0))
+        vwr_fr=tk.Frame(f,bg=BG2); vwr_fr.columnconfigure(1,weight=1); vwr_fr.grid(row=17,column=0,columnspan=3,sticky="ew")
         mk_lbl(vwr_fr,"Fallback viewer",anchor="w").grid(row=0,column=0,sticky="w",padx=(8,4),pady=3)
         mk_entry(vwr_fr,self.v_vrml_viewer,22).grid(row=0,column=1,sticky="ew",padx=(0,4),pady=3)
         mk_btn(vwr_fr,"…",self._browse_viewer,padx=6,pady=2).grid(row=0,column=2,padx=(0,8),pady=3)
@@ -736,10 +943,37 @@ class GateArcher(tk.Tk):
         if not os.path.isfile(str(path)): raise FileNotFoundError(f"Not found: {path}")
         return sitk.GetArrayFromImage(sitk.ReadImage(str(path))).astype(np.float64)
     def _detector_mean(self,arr,mode):
+        # NOTE: this is a raw whole-array mean, NOT the ROI-masked 2-slice
+        # mean that shieldLabAnalyze.roi_mean_dose() uses for the original
+        # (large-footprint) DoseActor. Only used as a fallback below when
+        # AI_OK is False (shieldLabAnalyze.py unavailable) or the array
+        # shape doesn't look like an "original" actor array. Also kept for
+        # "Mean all" mode, which the user can select explicitly.
         flat=arr.ravel(); n=flat.size
         if mode=="auto": mode="original" if n==4 else "mean"
         if mode=="original" and n!=4: raise ValueError(f"Original 4-slice but {n} voxel(s).")
         return float(np.mean(flat)),n
+    def _roi_mean(self,arr,mode):
+        # Prefer the real analyze-pipeline ROI mean (roi_mean_dose) so the
+        # GUI's "Original 4-slice"/"Auto-detect" modes match
+        # shieldLabAnalyze.collect_transmission() exactly, instead of the
+        # plain whole-array mean _detector_mean() computes. "Mean all"
+        # still explicitly requests the whole-array mean.
+        flat=arr.ravel(); n=flat.size
+        use_roi = AI_OK and (mode=="original" or (mode=="auto" and arr.ndim>=3 and ai._is_original_actor(arr)))
+        if mode=="original" and not AI_OK and n!=4:
+            raise ValueError(f"Original 4-slice but {n} voxel(s).")
+        if use_roi:
+            return float(ai.roi_mean_dose(arr)), n
+        return self._detector_mean(arr,"mean" if mode!="original" else "original")
+    def _n_primaries_for(self,mhd_path):
+        # Mirrors shieldLabAnalyze.read_n_primaries()'s stats.txt lookup so
+        # the GUI's N-normalization matches the command-line analyze tool
+        # exactly (same candidate paths, same JSON-then-line-text parsing,
+        # same fallback constant if no stats file is found).
+        if AI_OK:
+            return ai.read_n_primaries(Path(mhd_path))
+        return None
     def _calc_transmission(self):
         if not SITK_OK: messagebox.showerror("Missing","pip install SimpleITK"); return
         air_path=self.v_air_edep.get().strip(); mat_path=self.v_mat_edep.get().strip()
@@ -747,9 +981,26 @@ class GateArcher(tk.Tk):
         self._clear_analysis(); avg_mode=self.v_avg_mode.get()
         try:
             air_arr=self._read_mhd(air_path); mat_arr=self._read_mhd(mat_path)
-            air_mean,air_n=self._detector_mean(air_arr,avg_mode); mat_mean,mat_n=self._detector_mean(mat_arr,avg_mode)
+            air_mean,air_n=self._roi_mean(air_arr,avg_mode); mat_mean,mat_n=self._roi_mean(mat_arr,avg_mode)
             if air_mean<=0: raise ValueError("Air edep ≤ 0")
-            T=mat_mean/air_mean; rel_unc_T=None
+
+            # --- N-primaries normalization (this is the fix: previously T
+            # was computed as a raw mat_mean/air_mean ratio with no
+            # per-primary normalization at all, which is only valid if
+            # Air and Material happened to be run with identical N. Any
+            # mismatched N (e.g. a 1e9 Air reference vs a 1e8 barrier run)
+            # silently threw T off by exactly that N ratio.) ---
+            n_air = self._n_primaries_for(air_path)
+            n_mat = self._n_primaries_for(mat_path)
+            if n_air and n_mat:
+                d_air = air_mean/n_air; d_mat = mat_mean/n_mat
+                T = d_mat/d_air
+            else:
+                # shieldLabAnalyze.py unavailable -- can't read stats.txt,
+                # fall back to the old raw ratio but say so explicitly.
+                T = mat_mean/air_mean
+
+            rel_unc_T=None
             air_unc_path=self.v_air_unc.get().strip(); mat_unc_path=self.v_mat_unc.get().strip()
             if air_unc_path and mat_unc_path:
                 au=self._read_mhd(air_unc_path).ravel(); mu=self._read_mhd(mat_unc_path).ravel()
@@ -761,6 +1012,10 @@ class GateArcher(tk.Tk):
                 if ar is not None and mr is not None: rel_unc_T=float(np.sqrt(ar**2+mr**2))
             sep="─"*56; self._analysis_emit("TRANSMISSION FACTOR RESULT","header"); self._analysis_emit(sep)
             self._analysis_emit(f"  Air:      {Path(air_path).name}","label"); self._analysis_emit(f"  Material: {Path(mat_path).name}","label"); self._analysis_emit(sep)
+            if n_air and n_mat:
+                self._analysis_emit(f"  N_air = {n_air:,}   N_mat = {n_mat:,}","label")
+            else:
+                self._analysis_emit("  ⚠  shieldLabAnalyze.py not available -- N_primaries NOT applied (raw ratio)","warn")
             if rel_unc_T: self._analysis_emit(f"  T = {T:.6f}  ±{T*rel_unc_T:.6f}  ({rel_unc_T*100:.2f}%)","value")
             else: self._analysis_emit(f"  T = {T:.6f}","value")
             if T>1.0: self._analysis_emit("  ⚠  T > 1","warn")
@@ -788,20 +1043,101 @@ class GateArcher(tk.Tk):
         tk.Frame(f,bg=BORDER,height=1).grid(row=8,column=0,columnspan=3,sticky="ew",padx=8,pady=(8,6))
         grid_row(f,10,"Alpha tail pts",mk_entry(f,self.v_af_tail_n,8)); grid_row(f,11,"Alpha tolerance",mk_entry(f,self.v_af_alpha_tol,8))
         grid_row(f,12,"Thickness unc",mk_entry(f,self.v_af_thick_unc,8),"mm"); grid_row(f,13,"Target unc",mk_entry(f,self.v_af_target_unc,8))
-        tk.Frame(f,bg=BORDER,height=1).grid(row=14,column=0,columnspan=3,sticky="ew",padx=8,pady=(8,4))
-        mk_lbl(f,"Point Selection (choose one method):",fg=ACCENT,font=F_BOLD).grid(row=15,column=0,columnspan=3,sticky="w",padx=8,pady=(4,2))
-        grid_row(f,16,"Fit min T",mk_entry(f,self.v_af_fit_min_T,8),"(legacy: threshold)")
-        grid_row(f,17,"Fit max points",mk_entry(f,self.v_af_fit_points,8),"(legacy: from front)")
-        grid_row(f,18,"Start index",mk_entry(f,self.v_af_start_idx,8),"(0-based, inclusive)")
-        grid_row(f,19,"End index",mk_entry(f,self.v_af_end_idx,8),"(-1 or blank = last)")
-        mk_check(f,self.v_af_interactive,"Interactive tuner").grid(row=20,column=0,columnspan=3,sticky="w",padx=8,pady=(4,2))
-        tk.Frame(f,bg=BORDER,height=1).grid(row=21,column=0,columnspan=3,sticky="ew",padx=8,pady=(6,6))
-        btn_fr=tk.Frame(f,bg=BG2); btn_fr.grid(row=22,column=0,columnspan=3,sticky="w",padx=8,pady=(2,4))
+        arow=tk.Frame(f,bg=BG2); arow.grid(row=14,column=0,columnspan=3,sticky="w",padx=8,pady=(2,2))
+        mk_check(arow,self.v_af_anchor_alpha_global,"Anchor alpha to deepest points globally").pack(side="left")
+        mk_info_icon(arow,
+            "Always uses the full dataset's deepest tail points to compute "
+            "alpha, ignoring the fit-range selection below (Fit min T / Fit "
+            "max points / Start-End index / Min non-zero %).\n\n"
+            "Without this, a shallow fit-range selection can silently anchor "
+            "alpha to a shallower tail than the deepest points actually "
+            "measured for this pair.",
+            wraplength=320).pack(side="left",padx=(4,0))
+        tk.Frame(f,bg=BORDER,height=1).grid(row=16,column=0,columnspan=3,sticky="ew",padx=8,pady=(8,4))
+        mk_lbl(f,"Point Selection (choose one method):",fg=ACCENT,font=F_BOLD).grid(row=17,column=0,columnspan=3,sticky="w",padx=8,pady=(4,2))
+        grid_row(f,18,"Fit min T",mk_entry(f,self.v_af_fit_min_T,8),"(legacy: threshold)")
+        grid_row(f,19,"Fit max points",mk_entry(f,self.v_af_fit_points,8),"(legacy: from front)")
+        grid_row(f,20,"Start index",mk_entry(f,self.v_af_start_idx,8),"(0-based, inclusive)")
+        grid_row(f,21,"End index",mk_entry(f,self.v_af_end_idx,8),"(-1 or blank = last)")
+        grid_row(f,22,"Min non-zero %",mk_entry(f,self.v_af_min_nonzero_pct,8),
+                 "(same %% as MHD Viewer tab; e.g. 90)")
+        mk_check(f,self.v_af_interactive,"Interactive tuner").grid(row=23,column=0,columnspan=3,sticky="w",padx=8,pady=(4,2))
+        tk.Frame(f,bg=BORDER,height=1).grid(row=24,column=0,columnspan=3,sticky="ew",padx=8,pady=(6,4))
+        mk_lbl(f,"Fit Method:",fg=ACCENT,font=F_BOLD).grid(row=25,column=0,columnspan=3,sticky="w",padx=8,pady=(0,2))
+        # Method combo + FVL-weight entry share ONE row each, with their
+        # (long, multi-clause) explainer text moved to a hover tooltip "ⓘ"
+        # icon instead of an always-visible wraplength label -- this alone
+        # reclaims 2 full rows of permanent vertical space vs. the previous
+        # grid_row(...,"hint"...) layout, which is what pushed the buttons
+        # below the tab's visible area in the first place.
+        mrow=tk.Frame(f,bg=BG2); mrow.grid(row=26,column=0,columnspan=3,sticky="ew",padx=8,pady=3)
+        mk_lbl(mrow,"Method",anchor="w").pack(side="left",padx=(0,4))
+        mk_combo(mrow,self.v_af_fit_method,["odr","standard","fvl_optimized","odr_fvl","gsa","piecewise"],14).pack(side="left")
+        mk_info_icon(mrow,
+            "odr = paper-matched two-step fit, alpha pinned near the data-tail "
+            "slope, multi-start ODR.\n\n"
+            "standard = plain weighted nonlinear least squares, all 3 "
+            "parameters free, no alpha pinning -- independent cross-check.\n\n"
+            "fvl_optimized = alpha pinned to the same tail band as odr, but "
+            "beta/gamma chosen to directly minimize Archer-vs-local-bracket "
+            "FVL (HVL/TVL/etc.) disagreement instead of point residuals.\n\n"
+            "odr_fvl = real uncertainty-weighted ODR whose candidate "
+            "selection/polish is blended with FVL agreement (see FVL weight). "
+            "0 weight = identical to odr.\n\n"
+            "gsa = same alpha-pinned fit as odr, plus a physics-anchored "
+            "multi-energy-group diagnostic overlay (needs gsa_fit.py).\n\n"
+            "piecewise = same alpha-pinned fit as odr, plus a diagnostic "
+            "overlay of two independently-invertible Archer triples (thin/"
+            "thick) split at a data-driven cutoff thickness, continuity-"
+            "constrained at the seam. Simpler alternative to gsa (no "
+            "physics anchoring needed, easy closed-form inversion), but "
+            "the two triples carry no physical meaning of their own.",
+            wraplength=340).pack(side="left",padx=(4,0))
+        frow=tk.Frame(f,bg=BG2); frow.grid(row=27,column=0,columnspan=3,sticky="ew",padx=8,pady=3)
+        mk_lbl(frow,"FVL weight",anchor="w").pack(side="left",padx=(0,4))
+        mk_entry(frow,self.v_af_fvl_weight,8).pack(side="left")
+        mk_info_icon(frow,
+            "Only used by fit-method odr_fvl. Relative weight of the "
+            "(normalized) archer-vs-local FVL-agreement term vs. the "
+            "(normalized) point-residual RMSE term when selecting/polishing "
+            "the ODR candidate.\n\n"
+            "0 = identical to plain odr (guaranteed).\n"
+            "1 = equal weight after normalization (default).\n"
+            "Higher = favor FVL agreement more, at possible cost to "
+            "point-residual fit quality.\n\n"
+            "Try small values (0.1-0.5) first and increase gradually to see "
+            "how much FVL-agreement improvement costs in RMSE, rather than "
+            "jumping straight to a large weight.",
+            wraplength=340).pack(side="left",padx=(4,0))
+        lrow=tk.Frame(f,bg=BG2); lrow.grid(row=28,column=0,columnspan=3,sticky="ew",padx=8,pady=3)
+        mk_lbl(lrow,"Layer weights",anchor="w").pack(side="left",padx=(0,4))
+        mk_entry(lrow,self.v_af_fvl_layer_weights,16).pack(side="left")
+        mk_info_icon(lrow,
+            "Only used by fit-methods fvl_optimized and odr_fvl. Anchors the "
+            "FVL-agreement objective to specific Value Layers instead of "
+            "weighting HVL/QVL/TVL/CVL/MVL equally.\n\n"
+            "Format: comma-separated LABEL=weight pairs, e.g. 'HVL=1' or "
+            "'CVL=5,HVL=0.1'. Labels: HVL, QVL, TVL, CVL, MVL. A layer left "
+            "out entirely is excluded from the objective (weight 0).\n\n"
+            "Leave blank for the default: every resolvable layer weighted "
+            "equally at 1.0.\n\n"
+            "Note: with only 2 free parameters (beta, gamma) and a single "
+            "layer weighted, many (beta, gamma) combinations can satisfy "
+            "that one target equally well, so single-layer weighting alone "
+            "may not visibly change the fit -- pairing a heavily-weighted "
+            "layer with a lightly-weighted contrasting one (e.g. "
+            "'CVL=5,HVL=0.1') shows the effect more clearly.",
+            wraplength=340).pack(side="left",padx=(4,0))
+        tk.Frame(f,bg=BORDER,height=1).grid(row=29,column=0,columnspan=3,sticky="ew",padx=8,pady=(6,6))
+        btn_fr=tk.Frame(f,bg=BG2); btn_fr.grid(row=30,column=0,columnspan=3,sticky="w",padx=8,pady=(2,4))
         mk_btn(btn_fr,"📈 Fit Single",self._run_archer_single,bg=ACCENT,fg="#0d1117",font=("Segoe UI",10,"bold") if _W else ("Helvetica",10,"bold"),padx=12,pady=7).pack(side="left",padx=(0,6))
         mk_btn(btn_fr,"📊 Fit All",self._run_archer_all,bg="#8b5cf6",fg="white",padx=12,pady=7).pack(side="left",padx=(0,6))
         mk_btn(btn_fr,"🔢 Estimate N",self._run_archer_estimate_n,fg=ACCENT,padx=10,pady=7).pack(side="left",padx=(0,6))
         mk_btn(btn_fr,"📐 Lu-177",self._run_lu177_example,fg=FG2,padx=10,pady=7).pack(side="left")
-        res_fr=tk.Frame(f,bg=BG2); res_fr.grid(row=23,column=0,columnspan=3,sticky="nsew",padx=8,pady=(4,8)); f.rowconfigure(23,weight=1)
+        btn_fr2=tk.Frame(f,bg=BG2); btn_fr2.grid(row=31,column=0,columnspan=3,sticky="w",padx=8,pady=(0,4))
+        mk_btn(btn_fr2,"📉 Summary Plot (this isotope)",self._run_summary_plot_one,fg=ACCENT,padx=10,pady=7).pack(side="left",padx=(0,6))
+        mk_btn(btn_fr2,"📉 All Summary Plots",self._run_summary_plot_all,fg=ACCENT,padx=10,pady=7).pack(side="left")
+        res_fr=tk.Frame(f,bg=BG2); res_fr.grid(row=32,column=0,columnspan=3,sticky="nsew",padx=8,pady=(4,8)); f.rowconfigure(32,weight=1)
         mk_lbl(res_fr,"ARCHER FIT RESULTS",fg=ACCENT,font=F_BOLD).pack(anchor="w",padx=8,pady=(6,2))
         self.archer_box=scrolledtext.ScrolledText(res_fr,height=10,bg="#0d1117",fg=FG,font=F_MONO,relief="flat",wrap="word",state="disabled",padx=10,pady=8,highlightthickness=0)
         self.archer_box.pack(fill="both",expand=True,padx=8,pady=(0,8))
@@ -839,6 +1175,15 @@ class GateArcher(tk.Tk):
         if v: kw["start_idx"]=int(v)
         v=self.v_af_end_idx.get().strip()
         if v: kw["end_idx"]=int(v)
+        v=self.v_af_min_nonzero_pct.get().strip()
+        if v: kw["min_nonzero_pct"]=float(v)
+        kw["fit_method"]=self.v_af_fit_method.get().strip() or "odr"
+        kw["anchor_alpha_global"]=bool(self.v_af_anchor_alpha_global.get())
+        kw["fvl_weight"]=float(self.v_af_fvl_weight.get().strip() or "1.0")
+        v=self.v_af_fvl_layer_weights.get().strip()
+        if v:
+            try: kw["fvl_layer_weights"]=ai.parse_fvl_layer_weights(v)
+            except ValueError as exc: raise ValueError(f"Layer weights: {exc}")
         kw["alpha_tail_n"]=int(self.v_af_tail_n.get().strip() or "3")
         kw["alpha_tol"]=float(self.v_af_alpha_tol.get().strip() or "0.15")
         kw["thickness_unc_mm"]=float(self.v_af_thick_unc.get().strip() or "0.5")
@@ -880,12 +1225,58 @@ class GateArcher(tk.Tk):
             import io,contextlib
             try:
                 kw=self._get_archer_kwargs(); buf=io.StringIO()
-                with contextlib.redirect_stdout(buf): ai.analyze_all(outdir,target_unc=kw.get("target_unc",0.01),alpha_tail_n=kw.get("alpha_tail_n",3),alpha_tol=kw.get("alpha_tol",0.15))
+                with contextlib.redirect_stdout(buf): ai.analyze_all(outdir,target_unc=kw.get("target_unc",0.01),alpha_tail_n=kw.get("alpha_tail_n",3),alpha_tol=kw.get("alpha_tol",0.15),min_nonzero_pct=kw.get("min_nonzero_pct"),fit_method=kw.get("fit_method","odr"),anchor_alpha_global=kw.get("anchor_alpha_global",False),fvl_weight=kw.get("fvl_weight",1.0),fvl_layer_weights=kw.get("fvl_layer_weights"))
                 for line in buf.getvalue().splitlines(): self.after(0,lambda l=line: self._archer_emit(l))
                 self.after(0,lambda: self._archer_emit("All fits complete.","ok"))
             except Exception as exc:
                 import traceback; self.after(0,lambda: self._archer_emit(traceback.format_exc(),"error"))
         threading.Thread(target=_w,daemon=True).start()
+    def _run_summary_plot_one(self):
+        """Build the 'all materials for this isotope' overlay plot (see
+        shieldLabAnalyze.plot_isotope_summary) for whichever nuclide is
+        currently selected in the Nuclide dropdown above. Reads back
+        each material's already-saved fit-info from its
+        {nuclide}_{barrier}_transmission_data.csv -- does NOT re-fit, so
+        run "Fit Single"/"Fit All" (or save from the interactive tuner)
+        for the materials you want included first."""
+        if not AI_OK: messagebox.showerror("Missing","shieldLabAnalyze.py"); return
+        nuc=self.v_af_nuclide.get()
+        outdir=Path(self.v_af_outdir.get().strip() or "output").resolve()
+        if not outdir.exists(): messagebox.showerror("Not found",str(outdir)); return
+        self._clear_archer(); self._archer_emit(f"Building all-materials summary plot for {nuc}","header")
+        def _w():
+            import io,contextlib
+            try:
+                buf=io.StringIO()
+                with contextlib.redirect_stdout(buf): out=ai.plot_isotope_summary(nuc,outdir)
+                for line in buf.getvalue().splitlines(): self.after(0,lambda l=line: self._archer_emit(l))
+                if out is not None:
+                    self.after(0,lambda: self._archer_emit(f"  Saved => {out}","ok"))
+                else:
+                    self.after(0,lambda: self._archer_emit("  No plot written (no material had a saved fit).","warn"))
+            except Exception as exc:
+                import traceback; self.after(0,lambda: self._archer_emit(traceback.format_exc(),"error"))
+        threading.Thread(target=_w,daemon=True).start()
+
+    def _run_summary_plot_all(self):
+        """Same as above, but for every isotope that has at least one
+        saved fit-info block in the output directory -- one PNG per
+        isotope, no re-fitting."""
+        if not AI_OK: return
+        outdir=Path(self.v_af_outdir.get().strip() or "output").resolve()
+        if not outdir.exists(): messagebox.showerror("Not found",str(outdir)); return
+        self._clear_archer(); self._archer_emit("Building all-materials summary plots for every isotope found...","header")
+        def _w():
+            import io,contextlib
+            try:
+                buf=io.StringIO()
+                with contextlib.redirect_stdout(buf): written=ai.plot_all_isotope_summaries(outdir)
+                for line in buf.getvalue().splitlines(): self.after(0,lambda l=line: self._archer_emit(l))
+                self.after(0,lambda: self._archer_emit(f"Done -- {len(written)} plot(s) written.","ok"))
+            except Exception as exc:
+                import traceback; self.after(0,lambda: self._archer_emit(traceback.format_exc(),"error"))
+        threading.Thread(target=_w,daemon=True).start()
+
     def _run_archer_estimate_n(self):
         if not AI_OK: return
         nuc=self.v_af_nuclide.get(); bar=self.v_af_barrier.get()
@@ -921,6 +1312,30 @@ class GateArcher(tk.Tk):
         mk_btn(act,"✕  Clear",self._clear,fg=FG2,padx=12,pady=8).pack(side="left")
         self.status_var=tk.StringVar(value="Ready"); self.status_dot=tk.Label(act,text="●",font=F_BOLD,bg=BG,fg=FG2); self.status_dot.pack(side="right",padx=(0,2))
         tk.Label(act,textvariable=self.status_var,font=F_UI,bg=BG,fg=FG2).pack(side="right")
+        # ── Job Queue — snapshot the current form (via _build_cmd) into a list of
+        # jobs and run them back-to-back as separate shieldLabSim.py subprocesses,
+        # one after another. Each "Add current" click captures whatever the form
+        # holds at that instant, so different configs (barrier, cuts, physics list,
+        # etc.) can be queued up by changing fields between clicks. ──────────────
+        q_fr=tk.Frame(parent,bg=BG2); q_fr.pack(fill="x",padx=8,pady=(0,6))
+        q_hdr=tk.Frame(q_fr,bg=BG2); q_hdr.pack(fill="x",padx=8,pady=(6,2))
+        tk.Label(q_hdr,text="JOB QUEUE",font=F_BOLD,bg=BG2,fg=ACCENT).pack(side="left")
+        self.queue_count_var=tk.StringVar(value="(0 queued)")
+        tk.Label(q_hdr,textvariable=self.queue_count_var,font=F_SMALL,bg=BG2,fg=FG2).pack(side="left",padx=(6,0))
+        mk_btn(q_hdr,"Clear all",self._queue_clear,fg=FG2,padx=8,pady=2).pack(side="right")
+        mk_btn(q_hdr,"↓",self._queue_move_down,fg=FG2,padx=6,pady=2).pack(side="right",padx=(0,4))
+        mk_btn(q_hdr,"↑",self._queue_move_up,fg=FG2,padx=6,pady=2).pack(side="right",padx=(0,4))
+        mk_btn(q_hdr,"🗑 Remove",self._queue_remove,fg=FG2,padx=8,pady=2).pack(side="right",padx=(0,4))
+        mk_btn(q_hdr,"➕ Add current",self._queue_add,fg=ACCENT,padx=8,pady=2).pack(side="right",padx=(0,4))
+        q_lb_fr=tk.Frame(q_fr,bg=BG2); q_lb_fr.pack(fill="x",padx=8,pady=(2,6))
+        q_sb=tk.Scrollbar(q_lb_fr,orient="vertical",bg=BG3,troughcolor=BG2,relief="flat",width=10)
+        self.queue_lb=tk.Listbox(q_lb_fr,height=5,bg="#0d1117",fg=FG,font=F_MONO,selectbackground=BG3,selectforeground=ACCENT,relief="flat",highlightthickness=0,activestyle="none",yscrollcommand=q_sb.set)
+        q_sb.config(command=self.queue_lb.yview); self.queue_lb.pack(side="left",fill="x",expand=True); q_sb.pack(side="right",fill="y")
+        q_run_fr=tk.Frame(q_fr,bg=BG2); q_run_fr.pack(fill="x",padx=8,pady=(0,6))
+        self.run_queue_btn=mk_btn(q_run_fr,"▶▶  Run Queue",self._run_queue,bg=GREEN,fg="white",font=("Segoe UI",10,"bold") if _W else ("Helvetica",10,"bold"),padx=14,pady=6)
+        self.run_queue_btn.pack(side="left")
+        self.queue_progress_var=tk.StringVar(value="")
+        tk.Label(q_run_fr,textvariable=self.queue_progress_var,font=F_SMALL,bg=BG2,fg=FG2).pack(side="left",padx=(10,0))
         vrml_fr=tk.Frame(parent,bg=BG2); vrml_fr.pack(fill="x",padx=8,pady=(0,4))
         vrml_hdr=tk.Frame(vrml_fr,bg=BG2); vrml_hdr.pack(fill="x",padx=8,pady=(6,2))
         tk.Label(vrml_hdr,text="VRML OUTPUT",font=F_BOLD,bg=BG2,fg=ACCENT).pack(side="left")
@@ -942,8 +1357,9 @@ class GateArcher(tk.Tk):
     def _traces(self):
         self._barrier_widgets=[]
         for v in [self.v_nuclide,self.v_kvp,self.v_al,self.v_cu,self.v_kbins,self.v_barrier,self.v_thick,self.v_phantom,
+                  self.v_physics,self.v_tissue_cut,self.v_barrier_cut,
                   self.v_depth,self.v_det_sx,self.v_det_sy,self.v_det_sz,
-                  self.v_angle,self.v_angles,self.v_mode,self.v_n,self.v_threads,self.v_jobs,
+                  self.v_angle,self.v_angles,self.v_mode,self.v_n,self.v_threads,self.v_jobs,self.v_workers,self.v_seed,
                   self.v_unc,self.v_coneang,self.v_outdir,self.v_vistype,self.v_test,self.v_auto,self.v_split,
                   self.v_nocone,self.v_verbose,self.v_dose,self.v_uncout,self.v_vis,
                   self.v_countphot,self.v_sweep_to_cvl,self.v_vrml_viewer,
@@ -964,11 +1380,26 @@ class GateArcher(tk.Tk):
             if ang_str and ang_str!="0 15 30 45 60": a+=["--angles"]+ang_str.split()
         if mode not in MODES_NO_BARRIER: a+=["--barrier",self.v_barrier.get(),"--thickness",self.v_thick.get().strip() or "5.0"]
         a+=["--phantom-material",self._phantom_val()]
+        physics_val=self._physics_val()
+        if physics_val!="auto": a+=["--physics-list",physics_val]
+        tc=self.v_tissue_cut.get().strip()
+        if tc and tc!="0.01":
+            try: float(tc); a+=["--tissue-cut-mm",tc]
+            except: pass
+        bc=self.v_barrier_cut.get().strip()
+        if bc and bc!="0.1":
+            try: float(bc); a+=["--barrier-cut-mm",bc]
+            except: pass
         det=self.v_det.get()
-        if det=="custom":
+        if det=="centered":
+            a.append("--detector-centered")   # legacy pre-fix geometry, opt-in only
+        elif det=="custom":
             d=self.v_depth.get().strip()
             if d: a+=["--detector-depth",d]
         elif det!="original": a+=["--detector-preset",det]
+        # det=="original" -> no detector flag at all; shieldLabSim.py's own default
+        # is 10 mm depth, 4 planes, 250x250 mm footprint (see DETECTOR_OPTIONS
+        # comment above for why this isn't the literal full 2x2 m block)
         for flag,var in [("--detector-size-x",self.v_det_sx),("--detector-size-y",self.v_det_sy),("--detector-size-z",self.v_det_sz)]:
             val=var.get().strip()
             if val:
@@ -981,11 +1412,16 @@ class GateArcher(tk.Tk):
         else:
             n=self.v_n.get().strip()
             if n: a+=["--n",n]
-        if self.v_auto.get(): a.append("--auto")
+        if self.v_auto.get():
+            a.append("--auto")
         else:
             t=self.v_threads.get().strip(); j=self.v_jobs.get().strip()
             if t and t!="1": a+=["--threads",t]
             if j and j!="1": a+=["--jobs",j]
+            w=self.v_workers.get().strip()
+            if w and w!="1": a+=["--workers",w]
+        sd=self.v_seed.get().strip()
+        if sd: a+=["--seed",sd]
         ug=self.v_unc.get().strip()
         if ug and ug!="0.02": a+=["--unc-goal",ug]
         if self.v_split.get(): a.append("--split")
@@ -1072,12 +1508,10 @@ class GateArcher(tk.Tk):
         def _r(): env=os.environ.copy(); env["PYTHONIOENCODING"]="utf-8"; subprocess.run(cmd,env=env)
         threading.Thread(target=_r,daemon=True).start()
 
-    def _run(self):
-        if self._proc and self._proc.poll() is None: messagebox.showwarning("Busy","Already running."); return
-        if not SIM_SCRIPT.exists(): messagebox.showerror("Not found",str(SIM_SCRIPT)); return
-        cmd=self._build_cmd()
-        self._emit("="*66,"cmd"); self._emit(" ".join(cmd),"cmd"); self._emit("="*66,"cmd")
-        self.run_btn.configure(state="disabled"); self.stop_btn.configure(state="normal"); self._setstatus("Running…",ACCENT)
+    def _launch(self,cmd):
+        """Start cmd as a subprocess, streaming its stdout lines into self._q as
+        ("line",text) and finally ("done",returncode) or ("exc",str). Shared by
+        _run() (single ad-hoc command) and the job queue (_queue_run_current())."""
         def _w():
             try:
                 env=os.environ.copy(); env["PYTHONIOENCODING"]="utf-8"
@@ -1087,9 +1521,24 @@ class GateArcher(tk.Tk):
             except Exception as exc: self._q.put(("exc",str(exc)))
         threading.Thread(target=_w,daemon=True).start()
 
+    def _run(self):
+        if self._proc and self._proc.poll() is None: messagebox.showwarning("Busy","Already running."); return
+        if not SIM_SCRIPT.exists(): messagebox.showerror("Not found",str(SIM_SCRIPT)); return
+        cmd=self._build_cmd()
+        self._emit("="*66,"cmd"); self._emit(" ".join(cmd),"cmd"); self._emit("="*66,"cmd")
+        self.run_btn.configure(state="disabled"); self.run_queue_btn.configure(state="disabled")
+        self.stop_btn.configure(state="normal"); self._setstatus("Running…",ACCENT)
+        self._launch(cmd)
+
     def _stop(self):
+        # If a queue is running, mark it to halt after the in-flight job ends
+        # (rather than skipping straight to the next job) — _queue_job_finished()
+        # checks this flag before deciding whether to continue.
+        if self._queue_running: self._queue_stop_requested=True
         if self._proc and self._proc.poll() is None: self._proc.terminate(); self._emit("Terminated.","warn")
-        self.run_btn.configure(state="normal"); self.stop_btn.configure(state="disabled"); self._setstatus("Stopped",YELLOW)
+        if not self._queue_running:
+            self.run_btn.configure(state="normal"); self.run_queue_btn.configure(state="normal")
+            self.stop_btn.configure(state="disabled"); self._setstatus("Stopped",YELLOW)
 
     def _poll(self):
         try:
@@ -1104,14 +1553,130 @@ class GateArcher(tk.Tk):
                     elif val.lstrip().startswith("i  ") or "INFO" in val: tag="info"
                     self._emit(val,tag)
                 elif kind=="done":
-                    self.run_btn.configure(state="normal"); self.stop_btn.configure(state="disabled")
-                    if val==0: self._emit("Simulation complete.","ok"); self._setstatus("Complete",GREEN); self._vrml_refresh()
-                    else: self._emit(f"Exited with code {val}.","error"); self._setstatus(f"Failed (exit {val})",RED)
+                    if val==0: self._emit("Simulation complete.","ok")
+                    else: self._emit(f"Exited with code {val}.","error")
+                    if self._queue_running: self._queue_job_finished(val)
+                    else:
+                        self.run_btn.configure(state="normal"); self.run_queue_btn.configure(state="normal"); self.stop_btn.configure(state="disabled")
+                        if val==0: self._setstatus("Complete",GREEN); self._vrml_refresh()
+                        else: self._setstatus(f"Failed (exit {val})",RED)
                 elif kind=="exc":
-                    self.run_btn.configure(state="normal"); self.stop_btn.configure(state="disabled")
-                    self._emit(f"Exception: {val}","error"); self._setstatus("Error",RED)
+                    self._emit(f"Exception: {val}","error")
+                    if self._queue_running: self._queue_job_finished(-1)
+                    else:
+                        self.run_btn.configure(state="normal"); self.run_queue_btn.configure(state="normal"); self.stop_btn.configure(state="disabled")
+                        self._setstatus("Error",RED)
         except queue.Empty: pass
         self.after(80,self._poll)
+
+    # ── Job Queue ────────────────────────────────────────────────────────────
+    def _queue_label(self):
+        parts=[]
+        mode=self.v_mode.get()
+        mode_text=next((t for t,v in RUN_MODES if v==mode),mode)
+        parts.append(mode_text)
+        if self.v_src.get()=="nuclide": parts.append(self.v_nuclide.get())
+        else: parts.append(f"{self.v_kvp.get().strip() or '120'}kV")
+        if mode not in MODES_NO_BARRIER:
+            parts.append(f"{self.v_barrier.get()} {self.v_thick.get().strip() or '5.0'}mm")
+        physics_val=self._physics_val()
+        if physics_val!="auto": parts.append(physics_val)
+        tc=self.v_tissue_cut.get().strip(); bc=self.v_barrier_cut.get().strip()
+        if tc and tc!="0.01": parts.append(f"tcut={tc}mm")
+        if bc and bc!="0.1": parts.append(f"bcut={bc}mm")
+        od=self.v_outdir.get().strip()
+        if od and od!="output": parts.append(f"-> {od}")
+        return " | ".join(parts)
+
+    def _queue_add(self):
+        if not SIM_SCRIPT.exists(): messagebox.showerror("Not found",str(SIM_SCRIPT)); return
+        cmd=self._build_cmd(); label=self._queue_label()
+        self._job_queue.append({"label":label,"cmd":cmd})
+        self.queue_lb.insert("end",f"{len(self._job_queue)}. {label}")
+        self._queue_update_count()
+        self._emit(f"Added to queue [{len(self._job_queue)}]: {label}","info")
+
+    def _queue_update_count(self):
+        self.queue_count_var.set(f"({len(self._job_queue)} queued)")
+
+    def _queue_selected_index(self):
+        sel=self.queue_lb.curselection()
+        return sel[0] if sel else None
+
+    def _queue_guard_running(self):
+        if self._queue_running:
+            messagebox.showwarning("Queue running","Stop the queue before editing it."); return True
+        return False
+
+    def _queue_remove(self):
+        if self._queue_guard_running(): return
+        idx=self._queue_selected_index()
+        if idx is None: return
+        del self._job_queue[idx]; self._queue_relabel()
+
+    def _queue_clear(self):
+        if self._queue_guard_running(): return
+        self._job_queue=[]; self._queue_relabel()
+
+    def _queue_move_up(self):
+        if self._queue_guard_running(): return
+        idx=self._queue_selected_index()
+        if idx is None or idx==0: return
+        self._job_queue[idx-1],self._job_queue[idx]=self._job_queue[idx],self._job_queue[idx-1]
+        self._queue_relabel(select=idx-1)
+
+    def _queue_move_down(self):
+        if self._queue_guard_running(): return
+        idx=self._queue_selected_index()
+        if idx is None or idx>=len(self._job_queue)-1: return
+        self._job_queue[idx+1],self._job_queue[idx]=self._job_queue[idx],self._job_queue[idx+1]
+        self._queue_relabel(select=idx+1)
+
+    def _queue_relabel(self,select=None):
+        self.queue_lb.delete(0,"end")
+        for i,job in enumerate(self._job_queue,1): self.queue_lb.insert("end",f"{i}. {job['label']}")
+        self._queue_update_count()
+        if select is not None and 0<=select<len(self._job_queue): self.queue_lb.selection_set(select)
+
+    def _run_queue(self):
+        if self._proc and self._proc.poll() is None: messagebox.showwarning("Busy","Already running."); return
+        if not self._job_queue: messagebox.showinfo("Queue empty","Add at least one job to the queue first (\"Add current\")."); return
+        if not SIM_SCRIPT.exists(): messagebox.showerror("Not found",str(SIM_SCRIPT)); return
+        self._queue_running=True; self._queue_stop_requested=False; self._queue_pos=0
+        self.run_btn.configure(state="disabled"); self.run_queue_btn.configure(state="disabled")
+        self.stop_btn.configure(state="normal"); self._setstatus("Running queue…",ACCENT)
+        self._emit("="*66,"cmd"); self._emit(f"Starting queue: {len(self._job_queue)} job(s)","cmd"); self._emit("="*66,"cmd")
+        self._queue_run_current()
+
+    def _queue_run_current(self):
+        job=self._job_queue[self._queue_pos]
+        self.queue_lb.selection_clear(0,"end"); self.queue_lb.selection_set(self._queue_pos); self.queue_lb.see(self._queue_pos)
+        self.queue_progress_var.set(f"Job {self._queue_pos+1}/{len(self._job_queue)}: {job['label']}")
+        self._emit(f"[Queue {self._queue_pos+1}/{len(self._job_queue)}] {job['label']}","cmd")
+        self._emit(" ".join(job["cmd"]),"cmd")
+        self._launch(job["cmd"])
+
+    def _queue_job_finished(self,returncode):
+        self._vrml_refresh()
+        if self._queue_stop_requested:
+            remaining=len(self._job_queue)-self._queue_pos-1
+            self._emit(f"Queue stopped by user. {remaining} job(s) not run.","warn")
+            self._queue_finish_ui(aborted=True); return
+        if returncode!=0:
+            remaining=len(self._job_queue)-self._queue_pos-1
+            self._emit(f"Queue halted — job {self._queue_pos+1} failed (exit {returncode}). {remaining} job(s) not run.","error")
+            self._queue_finish_ui(aborted=True); return
+        self._queue_pos+=1
+        if self._queue_pos>=len(self._job_queue):
+            self._emit(f"Queue complete — {len(self._job_queue)} job(s) ran.","ok")
+            self._queue_finish_ui(aborted=False); return
+        self._queue_run_current()
+
+    def _queue_finish_ui(self,aborted):
+        self._queue_running=False; self._queue_stop_requested=False
+        self.run_btn.configure(state="normal"); self.run_queue_btn.configure(state="normal"); self.stop_btn.configure(state="disabled")
+        self._setstatus("Queue stopped" if aborted else "Queue complete",YELLOW if aborted else GREEN)
+        self.queue_progress_var.set(""); self.queue_lb.selection_clear(0,"end")
 
     def _emit(self,text,tag=None):
         self.log.configure(state="normal"); self.log.insert("end",text+"\n",tag or ""); self.log.see("end"); self.log.configure(state="disabled")
